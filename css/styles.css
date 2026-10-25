@@ -72,7 +72,7 @@ ul, ol { margin: 0; padding: 0; list-style: none; }
 .hero { position: relative; overflow: hidden; padding: clamp(72px, 11vw, 140px) 0 clamp(64px, 9vw, 110px); background: linear-gradient(180deg, var(--green-pale), var(--bg) 85%); }
 .blob { position: absolute; border-radius: 50%; filter: blur(50px); opacity: .55; pointer-events: none; }
 .blob--a { width: 460px; height: 460px; right: -80px; top: -90px; background: #f0c8b2; }
-.blob--b { width: 380px; height: 380px; left: -120px; bottom: -140px; background: #b9d3c1; }
+.blob--b { width: 340px; height: 340px; left: -150px; bottom: 130px; background: #b9d3c1; opacity: .45; }
 .hero__in { position: relative; }
 .hero h1 { font-size: clamp(42px, 6.6vw, 88px); max-width: 14ch; margin-bottom: 26px; }
 .hero__lead { max-width: 54ch; font-size: clamp(18px, 1.8vw, 22px); color: var(--muted); margin-bottom: 34px; }
