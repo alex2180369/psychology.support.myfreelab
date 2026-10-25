@@ -5,7 +5,7 @@
   // ВСТАВЬТЕ сюда URL веб-приложения Apps Script (вид https://script.google.com/macros/s/.../exec).
   // Пока пусто: форма сообщит, что приём заявок не подключён.
   var SITE_CONFIG = {
-    googleSheetsUrl: ''
+    googleSheetsUrl: 'https://script.google.com/macros/s/AKfycbymy7csfZY35SZP53O13DHC3PkIV5vDFC775UsWtwq1iznGw4myiUYPqRRUUVfVwIB7Gg/exec'
   };
 
   document.documentElement.classList.remove('no-js');
