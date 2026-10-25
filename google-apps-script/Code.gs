@@ -1,34 +1,53 @@
 /**
- * Приём заявок с сайта «Опора» в Google Таблицу.
- * Дополнительно (по желанию) присылает копию заявки в Telegram.
+ * Универсальный приём заявок с сайтов myfreelab в одну Google Таблицу.
+ * Подходит для club, psy и salon. Каждая строка помечена сайтом.
  *
- * Установка:
- * 1. sheets.google.com -> создайте таблицу, назовите, например, «Опора: заявки».
- * 2. Расширения -> Apps Script. Удалите всё в редакторе и вставьте этот файл целиком.
- * 3. Сохраните. Нажмите «Развернуть» -> «Новое развёртывание».
- *    Тип: «Веб-приложение». Кто выполняет: «Мне». Доступ: «Все». Разрешите доступ.
- * 4. Скопируйте URL вида https://script.google.com/macros/s/.../exec
- *    и вставьте его в js/main.js, в SITE_CONFIG.googleSheetsUrl.
+ * УСТАНОВКА (один раз, около 5 минут):
+ * 1. sheets.google.com -> «Создать» -> пустая таблица. Назовите, например, «Заявки myfreelab».
+ * 2. Расширения -> Apps Script. Удалите весь код в редакторе и вставьте этот файл целиком.
+ * 3. Нажмите «Сохранить» (значок дискеты).
+ * 4. «Развернуть» -> «Новое развёртывание» -> шестерёнка -> «Веб-приложение».
+ *    Выполнять от имени: «Я». У кого есть доступ: «Все».
+ *    Нажмите «Развернуть» и разрешите доступ к таблице (Google покажет предупреждение,
+ *    выберите «Дополнительно» -> «Перейти на страницу…»).
+ * 5. Скопируйте «URL веб-приложения», он заканчивается на /exec.
+ *    Этот URL нужен для настройки сайтов. Секретом он не является, но не публикуйте его
+ *    без нужды: по нему можно присылать заявки.
  *
- * Уведомления в Telegram (необязательно, токен НЕ хранится на сайте):
- *  Apps Script -> Настройки проекта (шестерёнка) -> «Свойства скрипта» -> добавьте
- *  TELEGRAM_BOT_TOKEN и TELEGRAM_CHAT_ID. Если свойств нет, уведомления отключены.
+ * ОБНОВЛЕНИЕ КОДА: после правок -> «Развернуть» -> «Управление развёртываниями» ->
+ * карандаш -> версия «Новая версия». URL при этом не меняется.
  *
- * Как забирать заявки: открывайте таблицу, лист «Заявки». Можно настроить фильтры,
- * скачать CSV (Файл -> Скачать) или подписаться на уведомления
- * (Инструменты -> Правила уведомлений).
+ * УВЕДОМЛЕНИЯ В TELEGRAM (необязательно). Токен хранится у Google, не на сайте:
+ * Apps Script -> «Настройки проекта» (шестерёнка слева) -> «Свойства скрипта» ->
+ * добавить TELEGRAM_BOT_TOKEN и TELEGRAM_CHAT_ID.
  *
- * Заявки содержат личные данные: не открывайте таблицу посторонним.
+ * КАК ЗАБИРАТЬ ЗАЯВКИ: лист «Заявки». Фильтр по колонке «Сайт» отделяет проекты друг от друга.
+ * Заявки содержат личные данные, не открывайте таблицу посторонним.
  */
 
 var SHEET_NAME = 'Заявки';
-var HEADERS = ['Время', 'Сайт', 'Имя', 'Контакт', 'Запрос', 'Комментарий', 'Страница'];
+var HEADERS = ['Время', 'Сайт', 'Имя', 'Контакт', 'Детали', 'Комментарий', 'Страница'];
+
+// Эти поля идут в свои колонки, всё остальное попадает в «Детали».
+var KNOWN = ['site', 'name', 'contact', 'comment', 'page', 'submittedAtLocal', 'submittedAt', 'website'];
+var LABELS = {
+  experience: 'Опыт в трейдинге',
+  topic: 'С чем пришли',
+  shoot: 'Формат съёмки',
+  tipAmount: 'Чаевые, ₽',
+  status: 'Статус',
+  createdAt: 'Создан'
+};
 
 function doPost(e) {
   var lock = LockService.getScriptLock();
   lock.tryLock(10000);
   try {
     var data = JSON.parse(e.postData.contents);
+    if (data.website) {
+      // Заполнена ловушка для ботов: молча игнорируем.
+      return json_({ ok: true });
+    }
 
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var sheet = ss.getSheetByName(SHEET_NAME);
@@ -36,20 +55,21 @@ function doPost(e) {
       sheet = ss.insertSheet(SHEET_NAME);
       sheet.appendRow(HEADERS);
       sheet.setFrozenRows(1);
+      sheet.getRange(1, 1, 1, HEADERS.length).setFontWeight('bold');
     }
 
+    var details = detailsOf_(data);
     sheet.appendRow([
       clean_(data.submittedAtLocal) || new Date().toLocaleString('ru-RU'),
       clean_(data.site),
       clean_(data.name),
       clean_(data.contact),
-      clean_(data.topic),
+      clean_(details),
       clean_(data.comment),
       clean_(data.page)
     ]);
 
-    notifyTelegram_(data);
-
+    notifyTelegram_(data, details);
     return json_({ ok: true });
   } catch (err) {
     return json_({ ok: false, error: String(err) });
@@ -62,13 +82,34 @@ function doGet() {
   return json_({ ok: true, message: 'Заявки принимаются методом POST' });
 }
 
+function detailsOf_(data) {
+  var lines = [];
+  Object.keys(data).forEach(function (key) {
+    if (KNOWN.indexOf(key) !== -1) return;
+    var value = data[key];
+    if (value === null || value === '' || value === undefined) return;
+
+    if (key === 'items' && Array.isArray(value)) {
+      value.forEach(function (it) {
+        var line = (it.name || '?') + ' x' + (it.quantity || 1);
+        if (it.price) line += ', ' + it.price + ' ₽';
+        if (it.comment) line += ' (' + it.comment + ')';
+        lines.push(line);
+      });
+    } else {
+      lines.push((LABELS[key] || key) + ': ' + (typeof value === 'object' ? JSON.stringify(value) : value));
+    }
+  });
+  return lines.join('\n');
+}
+
 // Защита от формул: значение, начинающееся с = + - @, превращаем в обычный текст.
 function clean_(v) {
-  var s = String(v == null ? '' : v).slice(0, 1000);
+  var s = String(v == null ? '' : v).slice(0, 2000);
   return /^[=+\-@]/.test(s) ? "'" + s : s;
 }
 
-function notifyTelegram_(data) {
+function notifyTelegram_(data, details) {
   var props = PropertiesService.getScriptProperties();
   var token = props.getProperty('TELEGRAM_BOT_TOKEN');
   var chatId = props.getProperty('TELEGRAM_CHAT_ID');
@@ -78,9 +119,9 @@ function notifyTelegram_(data) {
     'Новая заявка: ' + (data.site || 'сайт'),
     'Имя: ' + (data.name || '-'),
     'Контакт: ' + (data.contact || '-'),
-    'Запрос: ' + (data.topic || '-'),
-    'Комментарий: ' + (data.comment || '-')
-  ].join('\n');
+    details ? details : '',
+    data.comment ? 'Комментарий: ' + data.comment : ''
+  ].filter(String).join('\n');
 
   try {
     UrlFetchApp.fetch('https://api.telegram.org/bot' + token + '/sendMessage', {
